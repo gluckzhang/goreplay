@@ -4,7 +4,9 @@
 import sys
 import fileinput
 import binascii
+import time
 import re
+import diff_match_patch as dmp_module
 from bs4 import BeautifulSoup
 
 # Used to find end of the Headers section
@@ -37,6 +39,9 @@ def find_end_of_headers(byte_data):
 def process_stdin():
     form_token = ""
     cookie_validation = ""
+    current_id = ""
+    expected_response_code = ""
+    expected_response_body = ""
 
     """
     Process STDIN and output to STDOUT
@@ -58,23 +63,19 @@ def process_stdin():
 
         log('===================================')
         request_type_id = int(raw_metadata.split(b' ')[0])
-        log('Request type: {}'.format({
-          1: 'Request',
-          2: 'Original Response',
-          3: 'Replayed Response'
-        }[request_type_id]))
-        log('===================================')
-
-        # log('raw_headers:')
-        # log(raw_headers)
-        # log('raw_content:')
-        # log(raw_content)
+        # log('Request type: {}'.format({
+        #   1: 'Request',
+        #   2: 'Original Response',
+        #   3: 'Replayed Response'
+        # }[request_type_id]))
 
         if (request_type_id == 1):
-            log('raw_headers:')
-            log(raw_headers)
-            log('raw_content:')
-            log(raw_content)
+            # log('raw_headers:')
+            # log(raw_headers)
+            # log('raw_content:')
+            # log(raw_content)
+            request_info = str(raw_headers.split(b'\r\n')[0])
+            log('replay request: ' + request_info)
 
             pattern = re.compile(r'form_token=(\w+)')
             raw_content_str = raw_content.decode('utf-8')
@@ -94,17 +95,34 @@ def process_stdin():
                 raw_headers_str = raw_headers_str.replace(ori_validation, cookie_validation)
                 raw_headers = raw_headers_str.encode('utf-8')
             
-            log('***raw_headers***:')
-            log(raw_headers)
-            log('***raw_content***:')
-            log(raw_content)
+            # randomize the comment string
+            # pattern = re.compile(r'XWikiComments_comment=([^\&]*)\&')
+            # raw_content_str = raw_content.decode('utf-8')
+            # match = pattern.search(raw_content_str)
+            # if (match):
+            #     log('randomize the comment string')
+            #     ori_comment = match.group(1)
+            #     raw_content_str = raw_content_str.replace(ori_comment, ori_comment + "_replayed+by+goreplay_" + str(time.time()))
+            #     raw_content = raw_content_str.encode('utf-8')
+
+            # log('***raw_headers***:')
+            # log(raw_headers)
+            # log('***raw_content***:')
+            # log(raw_content)
+
+        if (request_type_id == 2):
+            current_id = str(raw_metadata.split(b' ')[1])
+            expected_response_code = str(raw_headers.split(b'\r\n')[0])
+            try:
+                expected_response_body = raw_content.decode('utf-8')
+            except:
+                pass
 
         if (request_type_id == 3):
-            log('raw_headers:')
-            log(raw_headers)
-            log('raw_content:')
-            log(raw_content)
-
+            # log('raw_headers:')
+            # log(raw_headers)
+            # log('raw_content:')
+            # log(raw_content)
             pattern = re.compile(r'validation=\"(\w+)\"')
             raw_headers_str = raw_headers.decode('utf-8')
             match = pattern.search(raw_headers_str)
@@ -118,10 +136,23 @@ def process_stdin():
                 log('find form-token in response')
                 form_token = new_token.get('value')
                 
-            log('***raw_headers***:')
-            log(raw_headers)
-            log('***raw_content***:')
-            log(raw_content)
+            replayed_response_code = str(raw_headers.split(b'\r\n')[0])
+            unique_id = str(raw_metadata.split(b' ')[1])
+            if (unique_id == current_id):
+                if (replayed_response_code != expected_response_code):
+                    log('Response status not match, expected "{0}", but got "{1}"'.format(expected_response_code, replayed_response_code))
+                try:
+                    raw_content_str = raw_content.decode('utf-8')
+                    dmp = dmp_module.diff_match_patch()
+                    diffs = dmp.diff_main(expected_response_body, raw_content_str)
+                    log(dmp.diff_prettyHtml(diffs))
+                except:
+                    pass
+                
+            # log('***raw_headers***:')
+            # log(raw_headers)
+            # log('***raw_content***:')
+            # log(raw_content)
 
         encoded = binascii.hexlify(raw_metadata + b'\n' + raw_headers + raw_content).decode('ascii')
         # log('Encoded data:')
