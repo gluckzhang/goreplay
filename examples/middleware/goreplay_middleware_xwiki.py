@@ -37,6 +37,7 @@ def find_end_of_headers(byte_data):
 
 
 def process_stdin():
+    jsessionid = ""
     form_token = ""
     cookie_validation = ""
     current_id = ""
@@ -94,7 +95,16 @@ def process_stdin():
                 ori_validation = match.group(1)
                 raw_headers_str = raw_headers_str.replace(ori_validation, cookie_validation)
                 raw_headers = raw_headers_str.encode('utf-8')
-            
+
+#            pattern = re.compile(r'JSESSIONID=([\w\.]+)')
+#            raw_headers_str = raw_headers.decode('utf-8')
+#            match = pattern.search(raw_headers_str)
+#            if (match and jsessionid != ""):
+#                ori_jsessionid = match.group(1)
+#                raw_headers_str = raw_headers_str.replace(ori_jsessionid, jsessionid)
+#                raw_headers = raw_headers_str.encode('utf-8')
+#                log('find cookie_JSESSIONID in request header(' + ori_jsessionid + '), replace it to (' + jsessionid + ')!')
+
             # randomize the comment string
             # pattern = re.compile(r'XWikiComments_comment=([^\&]*)\&')
             # raw_content_str = raw_content.decode('utf-8')
@@ -115,6 +125,12 @@ def process_stdin():
             expected_response_code = str(raw_headers.split(b'\r\n')[0])
             try:
                 expected_response_body = raw_content.decode('utf-8')
+                # we will diff the replayed response, replacing the csrftoken in the original ones can reduce diff results
+                pattern = re.compile(r'name=\"form_token\" value=\"([\w-]+)\"')
+                match = pattern.search(expected_response_body)
+                if (match and form_token != ""):
+                    ori_token = match.group(1)
+                    expected_response_body = expected_response_body.replace(ori_token, form_token)
             except:
                 pass
 
@@ -123,32 +139,43 @@ def process_stdin():
             # log(raw_headers)
             # log('raw_content:')
             # log(raw_content)
+            pattern = re.compile(r'JSESSIONID=([\w\.]+)')
+            raw_headers_str = raw_headers.decode('utf-8')
+            match = pattern.search(raw_headers_str)
+            if (match):
+                jsessionid = match.group(1)
+                log('find set-cookie JSESSIONID in response: ' + jsessionid)
+
             pattern = re.compile(r'validation=\"(\w+)\"')
             raw_headers_str = raw_headers.decode('utf-8')
             match = pattern.search(raw_headers_str)
             if (match):
                 log('find set-cookie validation in response')
                 cookie_validation = match.group(1)
-            
+
             soup = BeautifulSoup(raw_content, "html.parser")
             new_token = soup.find("input", attrs={"name": "form_token"})
             if (new_token):
                 log('find form-token in response')
                 form_token = new_token.get('value')
-                
+
             replayed_response_code = str(raw_headers.split(b'\r\n')[0])
             unique_id = str(raw_metadata.split(b' ')[1])
             if (unique_id == current_id):
                 if (replayed_response_code != expected_response_code):
                     log('Response status not match, expected "{0}", but got "{1}"'.format(expected_response_code, replayed_response_code))
+                    log(raw_headers)
                 try:
                     raw_content_str = raw_content.decode('utf-8')
                     dmp = dmp_module.diff_match_patch()
                     diffs = dmp.diff_main(expected_response_body, raw_content_str)
-                    log(dmp.diff_prettyHtml(diffs))
+                    prettyHtml = dmp.diff_prettyHtml(diffs)
+                    if prettyHtml.find("<del ") > 0:
+                        log('Response body not match, diff info:')
+                        log(prettyHtml)
                 except:
                     pass
-                
+
             # log('***raw_headers***:')
             # log(raw_headers)
             # log('***raw_content***:')
